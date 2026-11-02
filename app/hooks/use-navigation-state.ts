@@ -18,13 +18,18 @@ export interface NavigationState {
   path?: string;
   publicPath?: string;
   threadId?: string;
+  /** Repo whose triage board is open (/repos/:repoId). */
+  repoId?: string;
+  /** Finding open in the board's detail drawer (?finding=). */
+  findingId?: string;
 }
 
 export function useNavigationState() {
   useAgentRouteState<NavigationState>({
     browserTabId: TAB_ID,
     requestSource: TAB_ID,
-    getNavigationState: ({ pathname }) => navigationStateForPath(pathname),
+    getNavigationState: ({ pathname, searchParams }) =>
+      navigationStateForPath(pathname, searchParams),
     getCommandPath: commandPathForNavigation,
   });
 }
@@ -62,17 +67,31 @@ function matchesPathPrefix(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
-export function navigationStateForPath(pathname: string): NavigationState {
+export function repoIdFromPath(pathname: string): string | undefined {
+  const m = /^\/repos\/([^/?#]+)/.exec(pathname);
+  return m ? decodeURIComponent(m[1]!) : undefined;
+}
+
+export function navigationStateForPath(
+  pathname: string,
+  searchParams?: URLSearchParams,
+): NavigationState {
   const threadId = threadIdFromPath(pathname);
+  const repoId = repoIdFromPath(pathname);
+  const findingId = repoId ? searchParams?.get("finding") || undefined : undefined;
   return {
     view: viewForPath(pathname),
     path: pathname,
     publicPath: appPathFromLocalRoute(pathname),
     ...(threadId ? { threadId } : {}),
+    ...(repoId ? { repoId } : {}),
+    ...(findingId ? { findingId } : {}),
   };
 }
 
 function viewForPath(pathname: string): string {
+  if (pathname.startsWith("/repos/")) return "board";
+  if (pathname === "/repos") return "repos";
   if (isChatPathname(pathname)) return "chat";
   if (pathname === HOME_PATH) return "home";
   if (pathname.startsWith("/database")) return "database";
@@ -88,6 +107,9 @@ function viewForPath(pathname: string): string {
 
 function pathForView(view?: string): string {
   switch (view) {
+    case "repos":
+    case "board":
+      return "/repos";
     case "chat":
     case "ask":
       return NEW_CHAT_PATH;
@@ -111,6 +133,10 @@ function pathForView(view?: string): string {
 }
 
 export function pathForCommand(command: any): string {
+  if (command?.view === "board" && typeof command?.repoId === "string" && command.repoId) {
+    const finding = typeof command?.findingId === "string" && command.findingId ? `?finding=${encodeURIComponent(command.findingId)}` : "";
+    return `/repos/${encodeURIComponent(command.repoId)}${finding}`;
+  }
   const path = pathForView(command?.view);
   if (command?.view !== "chat" && command?.view !== "ask") return path;
   const threadId =

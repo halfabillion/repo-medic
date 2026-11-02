@@ -1,6 +1,22 @@
-# Chat — Agent Guide
+# Repo Medic — Agent Guide
 
 Chat is the minimal chat-first agent-native app. `/` redirects to shared sign-in, then `/home`, the editable Get started page. Chat lives at `/chat`; new chats start there. Actions carry capabilities; screens exist only for durable workflows.
+
+## Repo Medic
+
+Security triage app. `/repos` lists repos; `/repos/:repoId` is the triage board (`navigation.view` = `board`, `repoId`, `findingId` = drawer). Board and agent use the same actions:
+
+| Action | Use |
+| --- | --- |
+| `add-repo` / `list-repos` | local path (allowed roots) or GitHub URL |
+| `scan-repo` | semgrep + gitleaks + osv-scanner; upsert by fingerprint |
+| `list-findings` / `get-finding` | filters; code context + fix history |
+| `update-finding` | new/confirmed/dismissed (dismiss needs reason) |
+| `propose-fix` | your diff, or built-in autofix when no diff |
+| `test-fix` | worktree: applies, tests, finding gone, no new issues |
+| `open-pull-request` | needsApproval; local branch unless push enabled |
+
+`fix_ready`, `pr_opened`, `resolved` are earned, never set by hand. Never invent findings or versions. Scanner code: `server/lib/scanners/`; verification: `server/lib/verify.ts`.
 
 ## Skills
 

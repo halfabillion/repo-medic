@@ -1,0 +1,180 @@
+{
+ "results": [
+  {
+   "check_id": "repo-medic.scanners.semgrep.rm.js.sql-built-from-input",
+   "path": "src/app.js",
+   "start": {
+    "line": 11,
+    "col": 16,
+    "offset": 472
+   },
+   "end": {
+    "line": 12,
+    "col": 96,
+    "offset": 570
+   },
+   "extra": {
+    "message": "SQL text is built by interpolating a value. If that value comes from a request, an attacker can change the query (SQL injection). Use a placeholder (`?`) and pass the value as a bound parameter.",
+    "severity": "ERROR",
+    "metadata": {
+     "cwe": "CWE-89",
+     "category": "injection",
+     "confidence": "high",
+     "title": "SQL query built from input"
+    }
+   }
+  },
+  {
+   "check_id": "repo-medic.scanners.semgrep.rm.js.html-built-from-input",
+   "path": "src/app.js",
+   "start": {
+    "line": 20,
+    "col": 3,
+    "offset": 814
+   },
+   "end": {
+    "line": 20,
+    "col": 41,
+    "offset": 852
+   },
+   "extra": {
+    "message": "HTML is assembled from a variable and written straight to the response. If the value comes from the request this is reflected cross-site scripting (XSS). HTML-escape the value or use a template engine that escapes by default.",
+    "severity": "ERROR",
+    "metadata": {
+     "cwe": "CWE-79",
+     "category": "xss",
+     "confidence": "medium",
+     "title": "HTML response built from input"
+    }
+   }
+  },
+  {
+   "check_id": "repo-medic.scanners.semgrep.rm.js.shell-command-from-input",
+   "path": "src/app.js",
+   "start": {
+    "line": 25,
+    "col": 3,
+    "offset": 951
+   },
+   "end": {
+    "line": 25,
+    "col": 62,
+    "offset": 1010
+   },
+   "extra": {
+    "message": "A shell command string is built from a variable and run with child_process.exec, which invokes /bin/sh. A value like `x; rm -rf ~` runs extra commands (OS command injection). Use execFile/spawn with an argument array and validate the input.",
+    "severity": "ERROR",
+    "metadata": {
+     "cwe": "CWE-78",
+     "category": "injection",
+     "confidence": "high",
+     "title": "Shell command built from input"
+    }
+   }
+  },
+  {
+   "check_id": "repo-medic.scanners.semgrep.rm.js.weak-password-hash",
+   "path": "src/app.js",
+   "start": {
+    "line": 30,
+    "col": 10,
+    "offset": 1090
+   },
+   "end": {
+    "line": 30,
+    "col": 34,
+    "offset": 1114
+   },
+   "extra": {
+    "message": "MD5/SHA-1 are broken for security use and are fast to brute-force. Switch to SHA-256 at minimum; for passwords prefer scrypt/argon2 with a per-user salt.",
+    "severity": "WARNING",
+    "fix": "crypto.createHash(\"sha256\")",
+    "metadata": {
+     "cwe": "CWE-328",
+     "category": "crypto",
+     "confidence": "high",
+     "title": "Weak hash algorithm (MD5/SHA-1)",
+     "fix_summary": "Swap MD5/SHA-1 for SHA-256. A stopgap: password storage should move to scrypt or argon2 with a salt (needs a data migration)."
+    }
+   }
+  },
+  {
+   "check_id": "repo-medic.scanners.semgrep.rm.js.insecure-random-token",
+   "path": "src/app.js",
+   "start": {
+    "line": 35,
+    "col": 10,
+    "offset": 1242
+   },
+   "end": {
+    "line": 35,
+    "col": 45,
+    "offset": 1277
+   },
+   "extra": {
+    "message": "Math.random() is predictable and must not be used for session tokens, reset links or other secrets. Use crypto.randomBytes (or crypto.randomUUID).",
+    "severity": "WARNING",
+    "fix": "crypto.randomBytes(16).toString(\"hex\")",
+    "metadata": {
+     "cwe": "CWE-338",
+     "category": "crypto",
+     "confidence": "high",
+     "title": "Predictable random value used as a token",
+     "fix_summary": "Generate the token with crypto.randomBytes (a CSPRNG) instead of Math.random."
+    }
+   }
+  },
+  {
+   "check_id": "repo-medic.scanners.semgrep.rm.js.insecure-random-token",
+   "path": "src/app.js",
+   "start": {
+    "line": 35,
+    "col": 48,
+    "offset": 1280
+   },
+   "end": {
+    "line": 35,
+    "col": 83,
+    "offset": 1315
+   },
+   "extra": {
+    "message": "Math.random() is predictable and must not be used for session tokens, reset links or other secrets. Use crypto.randomBytes (or crypto.randomUUID).",
+    "severity": "WARNING",
+    "fix": "crypto.randomBytes(16).toString(\"hex\")",
+    "metadata": {
+     "cwe": "CWE-338",
+     "category": "crypto",
+     "confidence": "high",
+     "title": "Predictable random value used as a token",
+     "fix_summary": "Generate the token with crypto.randomBytes (a CSPRNG) instead of Math.random."
+    }
+   }
+  },
+  {
+   "check_id": "repo-medic.scanners.semgrep.rm.js.eval-json-literal",
+   "path": "src/app.js",
+   "start": {
+    "line": 45,
+    "col": 10,
+    "offset": 1620
+   },
+   "end": {
+    "line": 45,
+    "col": 31,
+    "offset": 1641
+   },
+   "extra": {
+    "message": "`eval` is used to parse data. Any JavaScript in the input runs with the server's privileges (code injection). The input is a JSON-style literal, so JSON.parse is a drop-in replacement.",
+    "severity": "ERROR",
+    "fix": "JSON.parse(raw)",
+    "metadata": {
+     "cwe": "CWE-95",
+     "category": "injection",
+     "confidence": "high",
+     "title": "eval() used to parse data",
+     "fix_summary": "Parse the value with JSON.parse instead of eval, so the input can no longer run code."
+    }
+   }
+  }
+ ]
+}

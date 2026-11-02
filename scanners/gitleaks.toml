@@ -1,0 +1,11 @@
+# Repo Medic gitleaks config: the default ruleset, minus vendored and generated paths.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Vendored dependencies, VCS internals and Repo Medic scratch space"
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)\.git/''',
+  '''(^|/)\.repo-medic/''',
+]
