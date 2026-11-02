@@ -6,9 +6,10 @@ Point Repo Medic at a repository. It runs real scanners, puts every finding on a
 
 Built with [Agent-Native](https://agent-native.com) (`@agent-native/core` 0.222.2, chat template) for the [Builder.io Agent-Native Hackathon](https://www.builder.io/hackathon).
 
+- Demo video (2:30, recorded with Builder.io Clips): https://clips.agent-native.com/r/VihMCasv3db2
 - App: https://github.com/halfabillion/repo-medic
 - Demo target (deliberately vulnerable, never deploy): https://github.com/halfabillion/repo-medic-demo-shop
-- A real PR opened by Repo Medic: https://github.com/halfabillion/repo-medic-demo-shop/pull/1
+- Real PRs opened by Repo Medic: https://github.com/halfabillion/repo-medic-demo-shop/pull/1 and https://github.com/halfabillion/repo-medic-demo-shop/pull/2 (the one opened live in the demo video)
 
 ![Triage board](docs/03-board.png)
 
