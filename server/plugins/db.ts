@@ -98,6 +98,26 @@ CREATE INDEX IF NOT EXISTS scans_repo_started_idx ON scans (repo_id, started_at)
 CREATE INDEX IF NOT EXISTS findings_repo_status_idx ON findings (repo_id, status, severity);
 CREATE INDEX IF NOT EXISTS fixes_finding_idx ON fixes (finding_id, created_at)`,
     },
+    {
+      version: 2,
+      name: "finding-events",
+      sql: `CREATE TABLE IF NOT EXISTS finding_events (
+  id TEXT PRIMARY KEY,
+  finding_id TEXT NOT NULL REFERENCES findings(id),
+  repo_id TEXT NOT NULL REFERENCES repos(id),
+  fix_id TEXT,
+  actor TEXT NOT NULL CHECK (actor IN ('agent', 'human', 'system')),
+  actor_label TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  ok INTEGER,
+  summary TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  owner_email TEXT NOT NULL,
+  org_id TEXT
+);
+CREATE INDEX IF NOT EXISTS finding_events_finding_idx ON finding_events (finding_id, created_at)`,
+    },
   ],
   { table: "repo_medic_migrations" },
 );

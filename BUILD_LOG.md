@@ -39,5 +39,16 @@ All project code was written on **2 Nov 2026** (Europe/London), after the hackat
 - `tests/normalize.test.ts`, `tests/status.test.ts`, `tests/fixes.test.ts` (34 tests); fixtures in `server/lib/scanners/__fixtures__/` captured from real scanner runs on the demo repo (osv fixture trimmed of long text fields).
 - `README.md` (replaces the template README; original at upstream), `BUILD_LOG.md`, `docs/*.png` screenshots.
 
+### Activity timeline and real PR flow (2 Nov 2026, later the same night)
+| File | What |
+| --- | --- |
+| `server/db/schema.ts`, `server/plugins/db.ts` | `finding_events` table (migration v2): actor (agent / human / system), kind, ok, summary, detail. |
+| `server/lib/events.ts` | Maps `ctx.caller` to an actor, records events (never throws), explains failed checks, rebuilds history for fixes made before the log existed. |
+| `actions/{scan-repo,update-finding,propose-fix,test-fix,open-pull-request}.ts` | Record detected / reopened / resolved, status & severity changes, proposed / rejected / passed / failed fixes, branch and PR events. |
+| `actions/get-finding.ts` | Returns the merged `timeline`. |
+| `actions/open-pull-request.ts` | Uses the checkout's `origin` remote, pushes the branch, runs `gh pr create --repo owner/name`, refuses stale bases. |
+| `app/components/repos/ActivityTimeline.tsx`, `FindingDrawer.tsx` | Timeline in the finding drawer; "Approve & create" dialog. |
+| `LICENSE`, `README.md`, `DEMO_SCRIPT.md`, `docs/13-activity-timeline.png` | MIT licence, docs, demo script. |
+
 ### Demo repository
-`../demo-vuln-shop` — new, written for this project (commit `1cf4538`, 2026-11-02 00:16 UTC): small Express-style shop with 8 deliberately planted issues and 7 node:test tests. Its API key is fake. The `repo-medic/weak-password-hash-45865a32` branch in it was created by Repo Medic during the UI smoke test.
+https://github.com/halfabillion/repo-medic-demo-shop (local checkout `../demo-vuln-shop`) — new, written for this project on 2 Nov 2026: a small Express-style shop with 8 deliberately planted issues and 7 node:test tests. Its Stripe-style key is an obviously fake `sk_test_…` value. History was squashed to one commit before publishing so no realistic-looking key was ever pushed. Branches named `repo-medic/…` and PRs on that repo were created by Repo Medic itself.

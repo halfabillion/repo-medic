@@ -33,6 +33,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { advisoryUrl, askAgentToFix, type Finding, type Fix, locationLabel, TOOL_LABEL, timeAgo } from "@/lib/repo-medic";
 import { cn } from "@/lib/utils";
 
+import { ActivityTimeline } from "./ActivityTimeline";
 import { CodeExcerpt, DiffView } from "./DiffView";
 import { DismissDialog } from "./DismissDialog";
 import { SeverityBadge } from "./SeverityBadge";
@@ -103,7 +104,7 @@ function FindingDetail({ findingId, onHandOff }: { findingId: string; onHandOff:
     );
   }
 
-  const { finding: f, code, fixes, repoName } = data;
+  const { finding: f, code, fixes, repoName, timeline } = data;
   const latest = fixes[0] ?? null;
   const open = f.status === "new" || f.status === "confirmed" || f.status === "fix_ready";
   const busy = phase !== null || update.isPending || openPr.isPending;
@@ -303,6 +304,8 @@ function FindingDetail({ findingId, onHandOff }: { findingId: string; onHandOff:
             </div>
           </section>
         ) : null}
+
+        <ActivityTimeline entries={timeline ?? []} />
       </div>
 
       <DismissDialog
@@ -316,13 +319,14 @@ function FindingDetail({ findingId, onHandOff }: { findingId: string; onHandOff:
           <AlertDialogHeader>
             <AlertDialogTitle>Commit this fix to a new branch?</AlertDialogTitle>
             <AlertDialogDescription>
-              Repo Medic commits the verified patch to a new <span className="font-mono">repo-medic/…</span> branch in {repoName}. It opens a
-              pull request only when pushing is enabled for this repository's owner; otherwise nothing leaves this machine.
+              Repo Medic commits the verified patch to a new <span className="font-mono">repo-medic/…</span> branch in {repoName}. When
+              pushing is enabled for this repository's GitHub owner, it pushes the branch and opens a pull request with the verification
+              table; otherwise nothing leaves this machine.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => latest && openPr.mutate({ id: latest.id })}>Create branch</AlertDialogAction>
+            <AlertDialogAction onClick={() => latest && openPr.mutate({ id: latest.id })}>Approve &amp; create</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

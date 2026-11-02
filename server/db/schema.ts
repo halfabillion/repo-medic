@@ -122,3 +122,44 @@ export const fixes = pgTable("fixes", {
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
 });
+
+export const EVENT_ACTORS = ["agent", "human", "system"] as const;
+export const EVENT_KINDS = [
+  "detected",
+  "reopened",
+  "resolved",
+  "status_changed",
+  "severity_changed",
+  "note_changed",
+  "fix_proposed",
+  "fix_rejected",
+  "fix_passed",
+  "fix_failed",
+  "branch_created",
+  "pr_opened",
+  "pr_failed",
+] as const;
+
+/**
+ * Append-only activity log for a finding: who (agent, person or the system)
+ * did what and when, including failed fix attempts and why they failed.
+ * Child of `findings`; inherits the repo's access.
+ */
+export const findingEvents = pgTable("finding_events", {
+  id: text("id").primaryKey(),
+  findingId: text("finding_id").notNull(),
+  repoId: text("repo_id").notNull(),
+  fixId: text("fix_id"),
+  actor: text("actor", { enum: EVENT_ACTORS }).notNull(),
+  /** Display name: the person's email, "Agent", or the scanner / system part. */
+  actorLabel: text("actor_label").notNull(),
+  kind: text("kind", { enum: EVENT_KINDS }).notNull(),
+  /** 1 = succeeded, 0 = failed, null = not a pass/fail event. */
+  ok: integer("ok"),
+  summary: text("summary").notNull(),
+  /** JSON array of strings: reasons, failed checks, links. */
+  detail: text("detail").notNull().default("[]"),
+  createdAt: text("created_at").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+});

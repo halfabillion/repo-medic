@@ -9,6 +9,7 @@ import { fixes } from "../server/db/schema.js";
 import { generateAutofix, NoAutofixError } from "../server/lib/autofix.js";
 import { fixSchema, toFix } from "../server/lib/dto.js";
 import { applyPatch, filesInDiff, headCommit, withWorktree } from "../server/lib/git.js";
+import { actorFrom, recordEvent } from "../server/lib/events.js";
 import { loadFinding, nowIso, requireOwner } from "../server/lib/store.js";
 
 const errors = defineActionErrors(
@@ -52,6 +53,15 @@ export default defineAction({
       diff = args.diff.endsWith("\n") ? args.diff : `${args.diff}\n`;
       const check = await withWorktree(repo.checkoutPath, baseCommit, (wt) => applyPatch(wt, diff, true));
       if (check.code !== 0) {
+        // Audit only: the rejected attempt is part of the finding's story.
+        await recordEvent({
+          finding,
+          ...actorFrom(ctx),
+          kind: "fix_rejected",
+          ok: false,
+          summary: args.summary?.trim() || "Proposed a patch",
+          detail: [`Patch does not apply to ${baseCommit.slice(0, 7)}: ${check.stderr.trim().slice(0, 300)}`],
+        });
         return errors.noWrite(
           `The diff does not apply to ${baseCommit.slice(0, 7)}: ${check.stderr.trim().slice(0, 400)}. Re-read the file with get-finding and regenerate the diff.`,
           "patch_does_not_apply",
@@ -93,6 +103,16 @@ export default defineAction({
       updatedAt: now,
       ownerEmail,
       orgId,
+    });
+    const who = actorFrom(ctx);
+    await recordEvent({
+      finding,
+      fixId: id,
+      ...who,
+      kind: "fix_proposed",
+      summary: source === "autofix" ? `Ran the deterministic auto-fix: ${summary}` : summary,
+      detail: [`${diff.split("\n").filter((l) => /^[+-](?![+-])/.test(l)).length} changed lines in ${filesInDiff(diff).join(", ") || "the repo"}`],
+      at: now,
     });
     const [saved] = await db.select().from(fixes).where(eq(fixes.id, id));
     return { id, fix: toFix(saved!), nextRequiredAction: "test-fix" as const };

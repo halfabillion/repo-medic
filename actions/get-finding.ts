@@ -7,6 +7,8 @@ import { z } from "zod";
 import { getDb } from "../server/db/index.js";
 import { fixes } from "../server/db/schema.js";
 import { findingSchema, fixSchema, toFinding, toFix } from "../server/lib/dto.js";
+import { EVENT_ACTORS, EVENT_KINDS } from "../server/db/schema.js";
+import { timelineFor } from "../server/lib/events.js";
 import { safeJoin } from "../server/lib/paths.js";
 import { loadFinding } from "../server/lib/store.js";
 
@@ -14,7 +16,7 @@ const CONTEXT_LINES = 6;
 
 export default defineAction({
   description:
-    "Get one finding with surrounding source code (±6 lines, secrets never included), advisories and every proposed fix with its diff and checks. Read this before writing a fix.",
+    "Get one finding with surrounding source code (±6 lines, secrets never included), advisories, every proposed fix with its diff and checks, and the activity timeline (who did what, including failed attempts and why). Read this before writing a fix.",
   schema: z.object({ id: z.string().describe("Finding id") }),
   http: { method: "GET" },
   readOnly: true,
@@ -25,6 +27,19 @@ export default defineAction({
       .object({ startLine: z.number(), lines: z.array(z.string()), language: z.string() })
       .nullable(),
     fixes: z.array(fixSchema),
+    timeline: z.array(
+      z.object({
+        id: z.string(),
+        at: z.string(),
+        actor: z.enum(EVENT_ACTORS),
+        actorLabel: z.string(),
+        kind: z.enum(EVENT_KINDS),
+        ok: z.boolean().nullable(),
+        summary: z.string(),
+        detail: z.array(z.string()),
+        fixId: z.string().nullable(),
+      }),
+    ),
   }),
   run: async (args) => {
     const { finding, repo } = await loadFinding(args.id);
@@ -45,6 +60,7 @@ export default defineAction({
         };
       }
     }
-    return { finding: toFinding(finding, rows[0]), repoName: repo.name, code, fixes: rows.map(toFix) };
+    const timeline = await timelineFor(finding, rows);
+    return { finding: toFinding(finding, rows[0]), repoName: repo.name, code, fixes: rows.map(toFix), timeline };
   },
 });

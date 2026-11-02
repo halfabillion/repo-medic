@@ -8,14 +8,24 @@ import { config } from "../server/lib/config.js";
 import { run } from "../server/lib/exec.js";
 import { applyPatch, git, parseGitHubUrl, withWorktree } from "../server/lib/git.js";
 import { branchNameFor, prBodyFor, prTitleFor } from "../server/lib/pr.js";
-import { loadFix, nowIso, parseJson } from "../server/lib/store.js";
+import { actorFrom, recordEvent } from "../server/lib/events.js";
+import { loadFix, nowIso, parseJson, type RepoRow } from "../server/lib/store.js";
 import type { Check } from "../server/lib/verify.js";
 
-const errors = defineActionErrors("not_found", "forbidden", "fix_not_verified", "branch_failed", "push_failed");
+const errors = defineActionErrors("not_found", "forbidden", "fix_not_verified", "stale_base", "branch_failed", "push_failed");
 
-function pushAllowed(source: string): { allowed: boolean; reason: string } {
-  const gh = parseGitHubUrl(source);
-  if (!gh) return { allowed: false, reason: "local repository: branch created locally, nothing pushed" };
+/** The GitHub repo a branch would go to: the source URL, or a local checkout's `origin` remote. */
+async function githubTarget(repo: RepoRow): Promise<{ owner: string; name: string } | null> {
+  const direct = parseGitHubUrl(repo.source);
+  if (direct) return direct;
+  const origin = await git(repo.checkoutPath, ["remote", "get-url", "origin"]);
+  if (origin.code !== 0) return null;
+  const url = origin.stdout.trim().replace(/^git@github\.com:/, "https://github.com/");
+  return parseGitHubUrl(url);
+}
+
+function pushAllowed(gh: { owner: string; name: string } | null): { allowed: boolean; reason: string } {
+  if (!gh) return { allowed: false, reason: "no GitHub remote: branch created locally, nothing pushed" };
   if (!config.allowPush) return { allowed: false, reason: "pushing is off (REPO_MEDIC_ALLOW_PUSH is not 1)" };
   if (!config.prOwners.includes(gh.owner.toLowerCase())) {
     return { allowed: false, reason: `${gh.owner} is not in REPO_MEDIC_PR_OWNERS` };
@@ -40,12 +50,21 @@ export default defineAction({
     _receipt: z.any(),
   }),
   errors,
-  run: async (args) => {
+  run: async (args, ctx) => {
     const { fix, finding, repo } = await loadFix(args.id, "editor");
     if (fix.status !== "passed") {
       return errors.noWrite("Only a fix that passed test-fix can become a pull request. Run test-fix first.", "fix_not_verified", {
         statusCode: 409,
       });
+    }
+    // The branch is cut from the commit the fix was verified on, so that commit must still be in the repo's history.
+    const ancestor = await git(repo.checkoutPath, ["merge-base", "--is-ancestor", fix.baseCommit, "HEAD"]);
+    if (ancestor.code !== 0) {
+      return errors.noWrite(
+        `This fix was verified against ${fix.baseCommit.slice(0, 7)}, which is no longer in the repository's history. Re-scan, then propose and verify the fix again.`,
+        "stale_base",
+        { statusCode: 409 },
+      );
     }
     const checks = parseJson<Check[]>(fix.checks, []);
     const prInput = {
@@ -68,17 +87,28 @@ export default defineAction({
       return (await git(wt, ["rev-parse", "HEAD"])).stdout.trim();
     });
 
-    const policy = pushAllowed(repo.source);
+    const who = actorFrom(ctx);
+    const target = await githubTarget(repo);
+    const policy = pushAllowed(target);
     let prUrl: string | null = null;
-    if (policy.allowed) {
-      const push = await git(repo.checkoutPath, ["push", "--quiet", "origin", `${branch}:${branch}`], 120_000);
-      if (push.code !== 0) return errors.fail(`git push failed: ${push.stderr.trim().slice(0, 300)}`, "push_failed", { statusCode: 502 });
+    if (policy.allowed && target) {
+      const slug = `${target.owner}/${target.name}`;
+      const push = await git(repo.checkoutPath, ["push", "--quiet", `https://github.com/${slug}.git`, `${branch}:refs/heads/${branch}`], 120_000);
+      if (push.code !== 0) {
+        const reason = `git push failed: ${push.stderr.trim().slice(0, 300)}`;
+        await recordEvent({ finding, fixId: fix.id, ...who, kind: "pr_failed", ok: false, summary: `Committed ${commit.slice(0, 7)} on ${branch}, but the push failed`, detail: [reason] });
+        return errors.fail(reason, "push_failed", { statusCode: 502 });
+      }
       const pr = await run(
         "gh",
-        ["pr", "create", "--repo", repo.source, "--head", branch, "--base", repo.defaultBranch, "--title", title, "--body", body],
+        ["pr", "create", "--repo", slug, "--head", branch, "--base", repo.defaultBranch, "--title", title, "--body", body],
         { cwd: repo.checkoutPath, timeoutMs: 60_000 },
       );
-      if (pr.code !== 0) return errors.fail(`gh pr create failed: ${pr.stderr.trim().slice(0, 300)}`, "push_failed", { statusCode: 502 });
+      if (pr.code !== 0) {
+        const reason = `gh pr create failed: ${pr.stderr.trim().slice(0, 300)}`;
+        await recordEvent({ finding, fixId: fix.id, ...who, kind: "pr_failed", ok: false, summary: `Pushed ${branch}, but opening the PR failed`, detail: [reason] });
+        return errors.fail(reason, "push_failed", { statusCode: 502 });
+      }
       prUrl = pr.stdout.trim().split("\n").pop() ?? null;
     }
 
@@ -86,6 +116,16 @@ export default defineAction({
     const db = getDb();
     await db.update(fixes).set({ status: "pr_opened", branch, prUrl, updatedAt: now }).where(eq(fixes.id, fix.id));
     await db.update(findings).set({ status: "pr_opened", updatedAt: now }).where(eq(findings.id, finding.id));
+    await recordEvent({
+      finding,
+      fixId: fix.id,
+      ...who,
+      kind: prUrl ? "pr_opened" : "branch_created",
+      ok: true,
+      summary: prUrl ? `Approved and opened a pull request on ${target!.owner}/${target!.name}` : `Approved: committed ${commit.slice(0, 7)} on ${branch}`,
+      detail: prUrl ? [prUrl, `Branch ${branch} @ ${commit.slice(0, 7)}`] : [policy.reason],
+      at: now,
+    });
     const verify = await git(repo.checkoutPath, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
     const branchOk = verify.stdout.trim() === commit;
     const message = prUrl

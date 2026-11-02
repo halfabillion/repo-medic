@@ -6,6 +6,7 @@ import { getDb } from "../server/db/index.js";
 import { findings, fixes } from "../server/db/schema.js";
 import { checkSchema, fixSchema, toFix } from "../server/lib/dto.js";
 import { config } from "../server/lib/config.js";
+import { actorFrom, failedCheckReasons, recordEvent } from "../server/lib/events.js";
 import { loadFix, nowIso } from "../server/lib/store.js";
 import { verifyFix } from "../server/lib/verify.js";
 
@@ -24,7 +25,7 @@ export default defineAction({
     _receipt: z.any(),
   }),
   errors,
-  run: async (args) => {
+  run: async (args, ctx) => {
     const { fix, finding, repo } = await loadFix(args.id, "editor");
     if (fix.status === "discarded" || fix.status === "pr_opened") {
       return errors.noWrite(`This fix is ${fix.status}.`, "fix_closed", { statusCode: 409 });
@@ -48,6 +49,18 @@ export default defineAction({
     if (result.passed && (finding.status === "new" || finding.status === "confirmed")) {
       await db.update(findings).set({ status: "fix_ready", updatedAt: now }).where(eq(findings.id, finding.id));
     }
+    await recordEvent({
+      finding,
+      fixId: fix.id,
+      ...actorFrom(ctx),
+      kind: result.passed ? "fix_passed" : "fix_failed",
+      ok: result.passed,
+      summary: result.passed
+        ? `Verified the fix: ${result.checks.filter((c) => c.ok && !c.skipped).length} checks passed${finding.status === "new" || finding.status === "confirmed" ? ", card moved to Fix ready" : ""}`
+        : `Verification failed (${result.checks.filter((c) => !c.ok && !c.skipped).length} of ${result.checks.length} checks)`,
+      detail: result.passed ? result.checks.filter((c) => c.skipped).map((c) => `Skipped ${c.id}: ${c.detail}`) : failedCheckReasons(result.checks),
+      at: now,
+    });
     const [saved] = await db.select().from(fixes).where(eq(fixes.id, fix.id));
     const _receipt: WriteReceipt = {
       changed: true,

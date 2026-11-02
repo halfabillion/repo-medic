@@ -6,6 +6,7 @@ import { getDb } from "../server/db/index.js";
 import { findings, SEVERITIES } from "../server/db/schema.js";
 import { findingSchema, toFinding } from "../server/lib/dto.js";
 import { checkManualTransition, MANUAL_STATUSES } from "../server/lib/status.js";
+import { actorFrom, recordEvent } from "../server/lib/events.js";
 import { latestFixes, loadFinding, nowIso } from "../server/lib/store.js";
 
 const errors = defineActionErrors("not_found", "forbidden", "invalid_transition", "reason_required", "empty_patch");
@@ -22,7 +23,7 @@ export default defineAction({
   }),
   outputSchema: z.object({ id: z.string(), finding: findingSchema, _receipt: z.any() }),
   errors,
-  run: async (args) => {
+  run: async (args, ctx) => {
     const { finding } = await loadFinding(args.id, "editor");
     if (args.status === undefined && args.severity === undefined && args.note === undefined) {
       return errors.noWrite("Nothing to change: pass status, severity or note.", "empty_patch");
@@ -40,6 +41,22 @@ export default defineAction({
     const db = getDb();
     await db.update(findings).set(patch).where(eq(findings.id, finding.id));
     const [saved] = await db.select().from(findings).where(eq(findings.id, finding.id));
+    const who = actorFrom(ctx);
+    if (patch.status !== undefined) {
+      await recordEvent({
+        finding,
+        ...who,
+        kind: "status_changed",
+        summary: `Moved from ${finding.status} to ${patch.status}`,
+        detail: patch.dismissReason ? [`Reason: ${patch.dismissReason}`] : [],
+      });
+    }
+    if (args.severity !== undefined && args.severity !== finding.severity) {
+      await recordEvent({ finding, ...who, kind: "severity_changed", summary: `Severity ${finding.severity} → ${args.severity}` });
+    }
+    if (args.note !== undefined && (args.note.trim() || null) !== finding.note) {
+      await recordEvent({ finding, ...who, kind: "note_changed", summary: args.note.trim() ? "Updated the note" : "Cleared the note", detail: args.note.trim() ? [args.note.trim()] : [] });
+    }
     const changed = Object.keys(patch).length > 1;
     const verified =
       (patch.status === undefined || saved!.status === patch.status) &&

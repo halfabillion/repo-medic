@@ -9,6 +9,7 @@ import { findings, repos, scans, TOOLS } from "../server/db/schema.js";
 import { git, headCommit } from "../server/lib/git.js";
 import { runScanners } from "../server/lib/scanners/run.js";
 import { OPEN_STATUSES, statusOnRescan } from "../server/lib/status.js";
+import { actorFrom, recordEvent } from "../server/lib/events.js";
 import { loadRepo, nowIso, requireOwner } from "../server/lib/store.js";
 
 const errors = defineActionErrors("not_found", "forbidden", "scan_running", "unauthenticated", "all_scanners_failed");
@@ -40,8 +41,9 @@ export default defineAction({
   }),
   errors,
   link: ({ result }) => ({ url: `/repos/${result.repoId}`, label: "Open board" }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const { ownerEmail, orgId } = requireOwner();
+    const who = actorFrom(ctx);
     const repo = await loadRepo(args.repoId, "editor");
     const db = getDb();
     const tools = args.tools?.length ? args.tools : [...TOOLS];
@@ -102,8 +104,9 @@ export default defineAction({
         };
         if (!prior) {
           newCount += 1;
+          const findingId = randomUUID();
           await db.insert(findings).values({
-            id: randomUUID(),
+            id: findingId,
             repoId: repo.id,
             fingerprint: f.fingerprint,
             tool: f.tool,
@@ -115,10 +118,22 @@ export default defineAction({
             orgId,
             ...fields,
           });
+          await recordEvent({
+            finding: { id: findingId, repoId: repo.id, ownerEmail, orgId },
+            actor: "system",
+            actorLabel: f.tool,
+            kind: "detected",
+            summary: `Found by ${f.tool} at ${f.filePath}${f.startLine ? `:${f.startLine}` : ""} (scan of ${commitSha.slice(0, 7)})`,
+            detail: [`Scan started by ${who.actorLabel}`],
+            at: now,
+          });
         } else {
           const status = statusOnRescan(prior.status);
           if (status !== prior.status) reopenedCount += 1;
           await db.update(findings).set({ ...fields, status }).where(eq(findings.id, prior.id));
+          if (status !== prior.status) {
+            await recordEvent({ finding: prior, actor: "system", actorLabel: f.tool, kind: "reopened", summary: `Reported again by ${f.tool} at ${commitSha.slice(0, 7)}; moved from ${prior.status} to ${status}`, at: now });
+          }
         }
       }
 
@@ -129,6 +144,9 @@ export default defineAction({
       );
       if (gone.length) {
         await db.update(findings).set({ status: "resolved", updatedAt: now, lastSeenScanId: scanId }).where(inArray(findings.id, gone.map((f) => f.id)));
+        for (const g of gone) {
+          await recordEvent({ finding: g, actor: "system", actorLabel: g.tool, kind: "resolved", summary: `No longer reported by ${g.tool} at ${commitSha.slice(0, 7)}`, at: now });
+        }
       }
 
       await db
