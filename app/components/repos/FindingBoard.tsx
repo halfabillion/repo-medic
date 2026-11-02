@@ -67,13 +67,14 @@ export function FindingBoard({
     return map;
   }, [findings]);
 
-  function drop(col: BoardColumn) {
-    setOverColumn(null);
-    const f = findings.find((x) => x.id === dragId);
-    setDragId(null);
-    if (!f || col.statuses.includes(f.status)) return;
+  /**
+   * The one guarded way to move a card, used by drag-and-drop and by the card's "Move to…" menu:
+   * earned columns refuse, fix-driven cards only go to Closed, Closed asks for a reason.
+   */
+  function moveTo(f: Finding, col: BoardColumn) {
+    if (col.statuses.includes(f.status)) return;
     if (!col.dropStatus) {
-      toast(EARNED_COLUMN_MESSAGE[col.id] ?? "Cards can't be dragged here.");
+      toast(EARNED_COLUMN_MESSAGE[col.id] ?? "Cards can't be moved here by hand.");
       return;
     }
     if (f.status === "fix_ready" || f.status === "pr_opened" || f.status === "resolved") {
@@ -87,6 +88,13 @@ export function FindingBoard({
       return;
     }
     update.mutate({ id: f.id, status: col.dropStatus });
+  }
+
+  function drop(col: BoardColumn) {
+    setOverColumn(null);
+    const f = findings.find((x) => x.id === dragId);
+    setDragId(null);
+    if (f) moveTo(f, col);
   }
 
   return (
@@ -139,6 +147,7 @@ export function FindingBoard({
                       finding={f}
                       selected={selectedId === f.id}
                       onOpen={() => onOpen(f.id)}
+                      onMove={(target) => moveTo(f, target)}
                       onDragStart={(e) => {
                         e.dataTransfer.effectAllowed = "move";
                         e.dataTransfer.setData("text/plain", f.id);

@@ -1,4 +1,3 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { actionErrorMessage, useActionMutation, useActionQuery } from "@agent-native/core/client/hooks";
 import {
   IconAlertTriangle,
@@ -30,6 +29,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { agentStillWorking, clearAgentAsked, markAgentAsked, submitToAgentChat, useAgentAskedAt } from "@/lib/agent-requests";
 import { advisoryUrl, askAgentToFix, type Finding, type Fix, locationLabel, TOOL_LABEL, timeAgo } from "@/lib/repo-medic";
 import { cn } from "@/lib/utils";
 
@@ -81,6 +81,8 @@ function FindingDetail({ findingId, onHandOff }: { findingId: string; onHandOff:
   const [dismissOpen, setDismissOpen] = useState(false);
   const [prOpen, setPrOpen] = useState(false);
   const [phase, setPhase] = useState<null | "patch" | "verify">(null);
+  const [handingOff, setHandingOff] = useState(false);
+  const askedAt = useAgentAskedAt(findingId);
 
   const update = useActionMutation("update-finding", {
     onError: (e) => toast.error(actionErrorMessage(e) ?? "Could not update the finding."),
@@ -107,7 +109,9 @@ function FindingDetail({ findingId, onHandOff }: { findingId: string; onHandOff:
   const { finding: f, code, fixes, repoName, timeline } = data;
   const latest = fixes[0] ?? null;
   const open = f.status === "new" || f.status === "confirmed" || f.status === "fix_ready";
-  const busy = phase !== null || update.isPending || openPr.isPending;
+  const agentWorking = agentStillWorking(askedAt, latest);
+  const busy = phase !== null || update.isPending || openPr.isPending || handingOff;
+  const superseded = latest?.status === "discarded";
 
   async function verify(fixId: string) {
     setPhase("verify");
@@ -133,11 +137,23 @@ function FindingDetail({ findingId, onHandOff }: { findingId: string; onHandOff:
     }
   }
 
-  function askAgent() {
+  async function askAgent() {
     const { message, context } = askAgentToFix(f, repoName);
-    sendToAgentChat({ message, context, submit: true, openSidebar: true });
-    toast("Sent to the agent. Follow along in the chat panel.");
-    onHandOff();
+    setHandingOff(true);
+    try {
+      const r = await submitToAgentChat(message, context);
+      if (r.delivered) {
+        markAgentAsked(f.id);
+        toast("The agent has it. The card shows its progress and moves when the fix passes.");
+        onHandOff();
+      } else {
+        toast.error(`The agent chat did not take the request (${r.reason ?? "no answer"}).`, {
+          action: { label: "Try again", onClick: () => void askAgent() },
+        });
+      }
+    } finally {
+      setHandingOff(false);
+    }
   }
 
   return (
@@ -163,8 +179,19 @@ function FindingDetail({ findingId, onHandOff }: { findingId: string; onHandOff:
             </Button>
           ) : null}
           {open ? (
-            <Button size="sm" variant={f.autofixAvailable ? "outline" : "default"} disabled={busy} onClick={askAgent}>
-              <IconSparkles className="size-4" /> Ask agent to fix
+            <Button
+              size="sm"
+              variant={f.autofixAvailable ? "outline" : "default"}
+              disabled={busy || agentWorking}
+              onClick={() => void askAgent()}
+            >
+              <IconSparkles className={cn("size-4", (handingOff || agentWorking) && "animate-pulse")} />
+              {handingOff ? "Handing to agent…" : agentWorking ? "Agent working…" : "Ask agent to fix"}
+            </Button>
+          ) : null}
+          {agentWorking ? (
+            <Button size="sm" variant="ghost" onClick={() => clearAgentAsked(f.id)} title="Stop showing the agent as working on this card">
+              Clear
             </Button>
           ) : null}
           {f.status === "new" || f.status === "confirmed" ? (
@@ -244,7 +271,7 @@ function FindingDetail({ findingId, onHandOff }: { findingId: string; onHandOff:
         {latest ? (
           <section className="space-y-3">
             <div className="flex items-baseline justify-between gap-3">
-              <h3 className="text-sm font-semibold">Proposed fix</h3>
+              <h3 className="text-sm font-semibold">{superseded ? "Previous fix (superseded)" : "Proposed fix"}</h3>
               <span className={cn("text-xs font-medium", FIX_STATUS[latest.status].className)}>
                 {FIX_STATUS[latest.status].label}
               </span>
@@ -253,8 +280,14 @@ function FindingDetail({ findingId, onHandOff }: { findingId: string; onHandOff:
             <p className="text-xs text-muted-foreground">
               {SOURCE_LABEL[latest.source]} · base {latest.baseCommit.slice(0, 7)} · {timeAgo(latest.updatedAt)}
             </p>
+            {superseded ? (
+              <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
+                This fix was checked against {latest.baseCommit.slice(0, 7)}, which is no longer the code being scanned, so
+                its results below are out of date. Ask for a new fix to get fresh checks.
+              </p>
+            ) : null}
             {latest.checks.length ? (
-              <ul className="divide-y rounded-lg border">
+              <ul className={cn("divide-y rounded-lg border", superseded && "opacity-50")} aria-label={superseded ? "Out-of-date checks" : "Checks"}>
                 {latest.checks.map((c) => (
                   <li key={c.id} className="flex items-start gap-3 px-3 py-2 text-sm">
                     {c.skipped ? (
