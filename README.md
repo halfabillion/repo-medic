@@ -8,6 +8,7 @@ Built with [Agent-Native](https://agent-native.com) (`@agent-native/core` 0.222.
 
 - App: https://github.com/halfabillion/repo-medic
 - Demo target (deliberately vulnerable, never deploy): https://github.com/halfabillion/repo-medic-demo-shop
+- A real PR opened by Repo Medic: https://github.com/halfabillion/repo-medic-demo-shop/pull/1
 
 ![Triage board](docs/03-board.png)
 
@@ -90,7 +91,7 @@ Guard rails live in the actions, not in the prompt, so they apply to every calle
 - **Earned statuses.** *Fix ready* requires a passing `test-fix`; *Branch / PR* requires `open-pull-request`. Nobody can drag a card there.
 - **Human approval for anything that leaves the box.** `open-pull-request` is marked `needsApproval`; the agent must ask, and a person clicks **Approve & create**.
 - **Push is off by default.** Pushing and opening PRs needs `REPO_MEDIC_ALLOW_PUSH=1` *and* the repo's GitHub owner in `REPO_MEDIC_PR_OWNERS`. Without them, Repo Medic only creates a local branch.
-- **No stale patches.** A PR is refused (`stale_base`) if the fix was verified against a commit that is no longer in the branch's history; re-scan and re-verify first.
+- **No stale patches.** A PR is refused (`stale_base`) if the fix was verified against a commit that is no longer in the branch's history; re-scan and re-verify first. A re-scan also sends such *Fix ready* cards back to *Confirmed*, with a timeline entry saying why.
 - **Verification in isolation.** Patches are applied and tested in a throwaway `git worktree`, never in your working copy. Diffs are size-limited (200 KB) and applied with `git apply`, which refuses paths outside the repository.
 - **Untrusted code doesn't run by default.** Repos cloned from GitHub don't get their tests executed unless `REPO_MEDIC_RUN_UNTRUSTED_TESTS=1`. Local repos must sit under `REPO_MEDIC_LOCAL_ROOTS`.
 - **Secrets are redacted** before they are stored, and leaked secrets are never "auto-fixed": the card says to rotate the key.

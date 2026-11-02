@@ -5,7 +5,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
-import { findings, repos, scans, TOOLS } from "../server/db/schema.js";
+import { findings, fixes, repos, scans, TOOLS } from "../server/db/schema.js";
 import { git, headCommit } from "../server/lib/git.js";
 import { runScanners } from "../server/lib/scanners/run.js";
 import { OPEN_STATUSES, statusOnRescan } from "../server/lib/status.js";
@@ -137,6 +137,33 @@ export default defineAction({
         }
       }
 
+      // A verified fix only counts while the commit it was verified on is still in history
+      // (a force-push or rewrite can drop it). Send such cards back to Confirmed for re-verification.
+      let staleCount = 0;
+      const fixReady = existing.filter((f) => f.status === "fix_ready" && seen.has(f.fingerprint));
+      for (const f of fixReady) {
+        const passed = await db.select().from(fixes).where(and(eq(fixes.findingId, f.id), eq(fixes.status, "passed")));
+        let anyCurrent = false;
+        for (const fx of passed) {
+          const ok = (await git(repo.checkoutPath, ["merge-base", "--is-ancestor", fx.baseCommit, commitSha])).code === 0;
+          if (ok) anyCurrent = true;
+          else await db.update(fixes).set({ status: "discarded", updatedAt: now }).where(eq(fixes.id, fx.id));
+        }
+        if (!anyCurrent) {
+          staleCount += 1;
+          await db.update(findings).set({ status: "confirmed", updatedAt: now }).where(eq(findings.id, f.id));
+          await recordEvent({
+            finding: f,
+            actor: "system",
+            actorLabel: "Repo Medic",
+            kind: "status_changed",
+            summary: `Moved from Fix ready back to Confirmed: the verified fix was based on a commit that is no longer in history`,
+            detail: [`Bases: ${[...new Set(passed.map((fx) => fx.baseCommit.slice(0, 7)))].join(", ") || "none"}; now at ${commitSha.slice(0, 7)}. Propose and verify the fix again.`],
+            at: now,
+          });
+        }
+      }
+
       // Only scanners that ran successfully can resolve their own findings.
       const okTools = results.filter((r) => r.ok).map((r) => r.tool);
       const gone = existing.filter(
@@ -156,7 +183,7 @@ export default defineAction({
       await db.update(repos).set({ lastScanId: scanId, lastScannedAt: nowIso() }).where(eq(repos.id, repo.id));
 
       const failed = results.filter((r) => !r.ok);
-      const summary = `Scanned ${repo.name} @ ${commitSha.slice(0, 7)}: ${seen.size} open issue${seen.size === 1 ? "" : "s"} (${newCount} new, ${reopenedCount} reopened, ${gone.length} resolved).${failed.length ? ` ${failed.map((r) => r.tool).join(", ")} failed.` : ""}`;
+      const summary = `Scanned ${repo.name} @ ${commitSha.slice(0, 7)}: ${seen.size} open issue${seen.size === 1 ? "" : "s"} (${newCount} new, ${reopenedCount} reopened, ${gone.length} resolved${staleCount ? `, ${staleCount} fix${staleCount === 1 ? "" : "es"} to re-verify` : ""}).${failed.length ? ` ${failed.map((r) => r.tool).join(", ")} failed.` : ""}`;
       const _receipt: WriteReceipt = {
         changed: true,
         verified: failed.length ? "unverified" : true,
